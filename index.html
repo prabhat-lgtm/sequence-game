@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sequence</title>
+<style>
+  :root { --bg:#14121c; --fg:#f3f1fa; --muted:#9a96ad; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+         background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  h1 { margin:0 0 4px; font-size:32px; letter-spacing:.5px; }
+  #status { color:var(--muted); height:24px; margin-bottom:20px; }
+  #board { display:grid; grid-template-columns:repeat(2,140px); gap:14px; }
+  .pad { width:140px; height:140px; border:0; border-radius:22px; cursor:pointer; opacity:.35;
+         transition:opacity .12s, transform .12s; }
+  .pad.lit { opacity:1; transform:scale(1.04); box-shadow:0 0 28px currentColor; }
+  .pad:disabled { cursor:default; }
+  .p0 { background:#2ecc71; color:#2ecc71; } .p1 { background:#e74c3c; color:#e74c3c; }
+  .p2 { background:#f1c40f; color:#f1c40f; } .p3 { background:#3498db; color:#3498db; }
+  #row { display:flex; gap:28px; margin-top:24px; align-items:center; }
+  .stat { text-align:center; } .stat b { display:block; font-size:26px; } .stat span { color:var(--muted); font-size:13px; }
+  #start { margin-top:24px; padding:12px 32px; font-size:17px; border:0; border-radius:999px;
+           background:var(--fg); color:var(--bg); cursor:pointer; font-weight:600; }
+  #start:disabled { opacity:.4; cursor:default; }
+  #help { margin-top:16px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+  <h1>Sequence</h1>
+  <div id="status">Watch the pads light up, then repeat the order.</div>
+  <div id="board">
+    <button class="pad p0" data-i="0" aria-label="green" disabled></button>
+    <button class="pad p1" data-i="1" aria-label="red" disabled></button>
+    <button class="pad p2" data-i="2" aria-label="yellow" disabled></button>
+    <button class="pad p3" data-i="3" aria-label="blue" disabled></button>
+  </div>
+  <div id="row">
+    <div class="stat"><b id="score">0</b><span>Score</span></div>
+    <div class="stat"><b id="best">0</b><span>Best</span></div>
+  </div>
+  <button id="start">Start</button>
+  <div id="help">Keys: Q W A S, or tap the pads.</div>
+<script>
+  const pads = [...document.querySelectorAll('.pad')];
+  const statusEl = document.getElementById('status');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const startBtn = document.getElementById('start');
+  const tones = [329.63, 261.63, 220.0, 164.81];
+  const keys = { q:0, w:1, a:2, s:3 };
+  let seq = [], pos = 0, accepting = false, audio;
+  let best = Number(localStorage.getItem('sequence-best') || 0);
+  bestEl.textContent = best;
+
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  function beep(i, ms) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = i < 0 ? 110 : tones[i];
+      o.type = i < 0 ? 'sawtooth' : 'sine';
+      g.gain.setValueAtTime(0.2, audio.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + ms / 1000);
+      o.connect(g).connect(audio.destination);
+      o.start(); o.stop(audio.currentTime + ms / 1000);
+    } catch (e) {}
+  }
+
+  async function flash(i, ms) {
+    pads[i].classList.add('lit'); beep(i, ms);
+    await wait(ms);
+    pads[i].classList.remove('lit');
+  }
+
+  function setInput(on) {
+    accepting = on;
+    pads.forEach(p => p.disabled = !on);
+  }
+
+  async function playSequence() {
+    setInput(false);
+    statusEl.textContent = 'Watch…';
+    await wait(600);
+    const speed = Math.max(220, 520 - seq.length * 20);
+    for (const i of seq) { await flash(i, speed); await wait(speed / 2.5); }
+    pos = 0;
+    statusEl.textContent = 'Your turn';
+    setInput(true);
+  }
+
+  function nextRound() {
+    seq.push(Math.floor(Math.random() * 4));
+    playSequence();
+  }
+
+  async function press(i) {
+    if (!accepting) return;
+    flash(i, 180);
+    if (i !== seq[pos]) return gameOver();
+    pos++;
+    if (pos === seq.length) {
+      setInput(false);
+      scoreEl.textContent = seq.length;
+      statusEl.textContent = 'Nice!';
+      nextRound();
+    }
+  }
+
+  function gameOver() {
+    setInput(false);
+    beep(-1, 500);
+    const score = seq.length - 1;
+    if (score > best) { best = score; localStorage.setItem('sequence-best', best); bestEl.textContent = best; }
+    statusEl.textContent = `Game over. You reached ${score}.`;
+    startBtn.textContent = 'Play again';
+    startBtn.disabled = false;
+  }
+
+  startBtn.addEventListener('click', () => {
+    seq = []; scoreEl.textContent = 0; startBtn.disabled = true;
+    nextRound();
+  });
+  pads.forEach(p => p.addEventListener('click', () => press(Number(p.dataset.i))));
+  document.addEventListener('keydown', e => { if (e.key.toLowerCase() in keys) press(keys[e.key.toLowerCase()]); });
+</script>
+</body>
+</html>
